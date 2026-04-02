@@ -290,7 +290,8 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
     st.plotly_chart(fig, use_container_width=True)
 
     # ────────── 最新信號 ──────────
-    st.subheader("📅 當期建議持倉（下個結算期）")
+    st.subheader("📅 現在應操作的持倉（本期動能最新信號）")
+    st.caption("本期信號 = 用「最新一期結算日（上月底）」的動能計算，代表現在到下次結算日間應持有什麼。與歷史最後一筆不同，因為歷史表最後一筆是上期已結束的持倉。")
     try:
         latest_signal = strategy.get_latest_signal(
             valid_risky, valid_safe,
@@ -311,8 +312,10 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
     # ────────── 歷史持倉紀錄 ──────────
     with st.expander("📋 查看歷史持倉紀錄"):
         st.markdown("""
-        > **💡 日期說明**：日期為該持有期間的**結算/結束日**。
-        > 例如 `2023-01-31` 持有 `NVDA`，代表整個 1 月份持有，決策於 12 月底做出。
+        > **💡 日期說明**：日期為該持有期間的**結算/結束日**，持倉內容為當期持有的標的。
+        > - 例如 `2025-03-31` 持有 `NVDA`，代表 3 月份持有 NVDA，決策於 2 月底做出。
+        > - ⚠️ **最後一筆（最新日期）≠ 現在應操作的持倉**：最後一筆是「上期已結束」的持倉記錄。
+        > - ✅ **「現在應操作的持倉」請看上方藍色框**，那才是基於最新動能計算的現行建議。
         """)
 
         def get_held_assets(row):
