@@ -106,37 +106,51 @@ class MomentumStrategy:
 
     def get_latest_signal(self, risky_assets: list, safe_assets: list, top_n: int = 1, frequency: str = 'ME', lookbacks: list = [12], weights: list = [1.0], cash_protection: bool = False) -> dict:
         """
-        根據最新數據獲取下一期的交易信號。
+        根據最新「完整」結算期的動能，計算當前應持有的標的。
+        
+        注意：若最後一期為當月（尚未結束），則使用上一個完整月份的動能，
+        確保與歷史持倉表的最後一筆（最新結算期）一致。
         """
         momentum, _ = self.calculate_momentum(resample_freq=frequency, lookbacks=lookbacks, weights=weights)
         
         if momentum.empty:
-            return {}
+            return {"Error": "動能數據為空"}
             
-        # 確保 safe_assets 是列表
         if isinstance(safe_assets, str):
             safe_assets = [safe_assets]
 
-        # 獲取最後一行的動能數據
+        # ─── 關鍵修正：判斷最後一期是否為當前未完成的結算期 ───
         last_date = momentum.index[-1]
-        last_mom = momentum.iloc[-1]
+        today = pd.Timestamp.today()
         
-        # 檢查最新動能是否為 NaN (例如數據不足以計算回顧期)
-        if last_mom.isnull().all():
-            return {"Error": "數據不足以計算最新信號"}
+        # 若最後一期的年月與今天相同，代表這是「不完整的當月」
+        # 應退回使用前一個完整結算期的動能
+        if last_date.year == today.year and last_date.month == today.month:
+            if len(momentum) < 2:
+                return {"Error": "數據不足以計算信號（需至少兩個完整結算期）"}
+            use_mom = momentum.iloc[-2]  # 使用上一個完整月的動能
+        else:
+            use_mom = momentum.iloc[-1]  # 最後一期即為完整的結算期
+        
+        # 檢查動能是否全為 NaN
+        if use_mom.isnull().all():
+            return {"Error": "動能數據不足（可能回顧期過長）"}
 
-        # 攻擊型資產動能
-        risky_momentum = last_mom[risky_assets]
-        
-        # 最佳攻擊型資產
-        best_risky_assets = risky_momentum.sort_values(ascending=False).head(top_n)
-        
-        # 最佳防禦型資產
-        valid_safe_assets = [sa for sa in safe_assets if sa in last_mom.index]
-        if valid_safe_assets:
-            safe_mom_series = last_mom[valid_safe_assets]
-            best_safe_asset = safe_mom_series.idxmax()
-            best_safe_mom_val = safe_mom_series.max()
+        # ─── 計算信號邏輯（與 generate_signals 一致）───
+        # 取可用的攻擊型資產動能
+        valid_risky = [r for r in risky_assets if r in use_mom.index and pd.notna(use_mom[r])]
+        if not valid_risky:
+            return {"Error": "攻擊型資產動能均為 NaN"}
+            
+        risky_momentum = use_mom[valid_risky]
+        best_risky = risky_momentum.sort_values(ascending=False).head(top_n)
+
+        # 取可用的防禦型資產動能
+        valid_safe = [s for s in safe_assets if s in use_mom.index]
+        if valid_safe:
+            safe_mom = use_mom[valid_safe]
+            best_safe_asset = safe_mom.idxmax()
+            best_safe_mom_val = safe_mom.max()
         else:
             best_safe_asset = None
             best_safe_mom_val = -999
@@ -144,7 +158,9 @@ class MomentumStrategy:
         signal = {}
         weight_per_asset = 1.0 / top_n
         
-        for asset, mom_val in best_risky_assets.items():
+        for asset, mom_val in best_risky.items():
+            if pd.isna(mom_val):
+                continue
             if mom_val > 0:
                 signal[asset] = signal.get(asset, 0) + weight_per_asset
             else:
@@ -154,3 +170,4 @@ class MomentumStrategy:
                     signal[best_safe_asset] = signal.get(best_safe_asset, 0) + weight_per_asset
                     
         return signal
+
