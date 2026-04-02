@@ -97,46 +97,54 @@ class DataFetcher:
         """
         獲取 S&P 500 中市值最大的前 N 檔股票代碼。
         主要來源：Slickcharts (已依權重排序)。
-        備援來源：Wikipedia S&P 500 列表。
+        備援 1：GitHub 公開 CSV。
+        備援 2：Wikipedia。
         """
         # --- 主要來源：Slickcharts ---
         try:
             url = "https://www.slickcharts.com/sp500"
-            # 使用完整的瀏覽器 Header 模擬，避免被雲端環境封鎖
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Referer': 'https://www.google.com/',
                 'Connection': 'keep-alive',
             }
             response = requests.get(url, headers=headers, timeout=15, verify=False)
             response.raise_for_status()
-            
             from io import StringIO
             tables = pd.read_html(StringIO(response.text))
             df = tables[0]
             tickers = df['Symbol'].tolist()
             tickers = [t.replace('.', '-') for t in tickers]
-            
             if tickers:
                 return tickers[:n]
-            raise ValueError("Slickcharts 返回空清單")
-            
         except Exception as slick_err:
-            print(f"Slickcharts 抓取失敗: {slick_err}，切換至 Wikipedia 備援...")
-        
-        # --- 備援來源：Wikipedia ---
+            print(f"Slickcharts 失敗: {slick_err}")
+
+        # --- 備援 1：GitHub 公開 CSV (datasets/s-and-p-500-companies) ---
+        try:
+            csv_url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+            r = requests.get(csv_url, timeout=10, verify=False)
+            r.raise_for_status()
+            from io import StringIO
+            df = pd.read_csv(StringIO(r.text))
+            tickers = df['Symbol'].tolist()
+            tickers = [t.replace('.', '-') for t in tickers]
+            if tickers:
+                return tickers[:n]
+        except Exception as csv_err:
+            print(f"GitHub CSV 失敗: {csv_err}")
+
+        # --- 備援 2：Wikipedia ---
         try:
             wiki_tickers = self.fetch_sp500_tickers()
             if wiki_tickers:
-                # Wikipedia 不保證依市值排序，但至少提供完整清單
-                # 直接取前 N 個 (近似值，並非嚴格市值排序)
                 return wiki_tickers[:n]
-            raise ValueError("Wikipedia 也返回空清單")
-        except Exception as wiki_err:
-            print(f"Wikipedia 備援也失敗: {wiki_err}")
-            return []
+        except Exception:
+            pass
+
+        return []
 
     def _get_top_n_fallback(self, n: int) -> list:
         """
