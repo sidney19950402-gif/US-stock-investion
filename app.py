@@ -310,20 +310,31 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
         st.warning(f"計算最新信號時發生錯誤：{e}")
 
     # ────────── 歷史持倉紀錄 ──────────
-    with st.expander("📋 查看歷史持倉紀錄"):
+    with st.expander("📋 查看歷史持倉紀錄（已完結期間）"):
         st.markdown("""
-        > **💡 日期說明**：日期為該期間的**結算/結束日**，持倉內容為當期持有的標的。
+        > **💡 日期說明**：日期為該期間的**結算/結束日**，僅顯示已完結的期間。
         > - 例如 `2025-03-31` 持有 `NVDA`，代表 3 月份（2/28 至 3/31）持有 NVDA，決策於 2 月底做出。
-        > - ✅ **最後一筆（最新日期）= 現在應操作的持倉**，與上方「現在應操作的持倉」相同。
+        > - 當期（進行中）不顯示於此，請看上方「現在應操作的持倉」。
         """)
-
 
         def get_held_assets(row):
             held = [asset for asset, w in row.items() if w > 0]
             return ", ".join(held) if held else "CASH"
 
-        historical = signals_sliced.apply(get_held_assets, axis=1).to_frame("本期持倉")
-        st.dataframe(historical.sort_index(ascending=False), use_container_width=True)
+        # 排除當前尚未結束的期間（最後一行若屬於本月則不顯示）
+        today = pd.Timestamp.today()
+        historical_signals = signals_sliced.copy()
+        if not historical_signals.empty:
+            last_idx = historical_signals.index[-1]
+            if last_idx.year == today.year and last_idx.month == today.month:
+                historical_signals = historical_signals.iloc[:-1]
+
+        if historical_signals.empty:
+            st.info("尚無已完結的歷史期間可顯示。")
+        else:
+            historical = historical_signals.apply(get_held_assets, axis=1).to_frame("本期持倉")
+            st.dataframe(historical.sort_index(ascending=False), use_container_width=True)
+
 
     # ────────── 每月回報 ──────────
     st.subheader("每期回報率")
