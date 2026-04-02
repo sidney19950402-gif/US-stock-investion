@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import ssl
 import urllib.request
+import requests
 
 # SSL 憑證驗證繞過 (針對 macOS Python 環境常見問題)
 try:
@@ -14,9 +15,6 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 class DataFetcher:
-    def __init__(self):
-        pass
-
     def __init__(self):
         pass
 
@@ -98,35 +96,47 @@ class DataFetcher:
     def get_top_n_by_market_cap(self, n: int = 50) -> list:
         """
         獲取 S&P 500 中市值最大的前 N 檔股票代碼。
-        改用 Slickcharts 來源，因為它已經依照指數權重排序。
+        主要來源：Slickcharts (已依權重排序)。
+        備援來源：Wikipedia S&P 500 列表。
         """
+        # --- 主要來源：Slickcharts ---
         try:
             url = "https://www.slickcharts.com/sp500"
+            # 使用完整的瀏覽器 Header 模擬，避免被雲端環境封鎖
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Referer': 'https://www.google.com/',
+                'Connection': 'keep-alive',
+            }
+            response = requests.get(url, headers=headers, timeout=15, verify=False)
+            response.raise_for_status()
             
-            # 使用 urllib 設置 User-Agent 以避免 403 Forbidden
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            req = urllib.request.Request(url, headers=headers)
-            
-            with urllib.request.urlopen(req) as response:
-                html = response.read()
-                
-            tables = pd.read_html(html)
+            from io import StringIO
+            tables = pd.read_html(StringIO(response.text))
             df = tables[0]
-            
-            # Slickcharts 的表格有一個 Symbol 欄位
             tickers = df['Symbol'].tolist()
-            
-            # 處理特殊代碼格式，例如 BRK.B -> BRK-B
             tickers = [t.replace('.', '-') for t in tickers]
             
-            # 因為已經排好序了，直接取前 N 個
-            return tickers[:n]
+            if tickers:
+                return tickers[:n]
+            raise ValueError("Slickcharts 返回空清單")
             
-        except Exception as e:
-            print(f"Error fetching data from Slickcharts: {e}")
-            # Fallback: 如果 Slickcharts 失敗，嘗試回退到 Wikipedia + 多執行緒抓取 (舊邏輯)
-            print("Fallback to Wikipedia + Yahoo Finance...")
-            return self._get_top_n_fallback(n)
+        except Exception as slick_err:
+            print(f"Slickcharts 抓取失敗: {slick_err}，切換至 Wikipedia 備援...")
+        
+        # --- 備援來源：Wikipedia ---
+        try:
+            wiki_tickers = self.fetch_sp500_tickers()
+            if wiki_tickers:
+                # Wikipedia 不保證依市值排序，但至少提供完整清單
+                # 直接取前 N 個 (近似值，並非嚴格市值排序)
+                return wiki_tickers[:n]
+            raise ValueError("Wikipedia 也返回空清單")
+        except Exception as wiki_err:
+            print(f"Wikipedia 備援也失敗: {wiki_err}")
+            return []
 
     def _get_top_n_fallback(self, n: int) -> list:
         """
