@@ -21,50 +21,70 @@ class DataFetcher:
     @st.cache_data(ttl=3600)
     def fetch_data(_self, tickers: list, start_date: str, end_date: str = None) -> pd.DataFrame:
         """
-        獲取指定代碼的調整後收盤價 (Adjusted Close)。
+        獲取指定代碼的調整後收盤僷 (Adjusted Close)。
         """
         if end_date is None:
             end_date = datetime.now().strftime('%Y-%m-%d')
-            
-        print(f"Downloading data for {tickers} from {start_date} to {end_date}...")
         
-        # [修正] 使用 auto_adjust=True，這是 yfinance 推薦的方式，直接獲取調整後價格
-        # 並使用 threads=False 以降低並發導致的錯誤率 (雖然慢一點但較穩)
-        df = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, threads=False)
+        # 确保 tickers 是 tuple (可雜湊型態)，避免快取 key 錯誤
+        tickers = tuple(sorted(set(tickers)))
         
-        if df.empty:
-            raise ValueError("Download failed: No data returned from Yahoo Finance.")
+        print(f"Downloading {len(tickers)} tickers from {start_date} to {end_date}...")
 
-        # 使用 'Close' (因為 auto_adjust=True，這已經是調整後收盤價)
-        if 'Close' in df:
-            data = df['Close']
+        # 大量股票分批下載，每批最多 100 檔
+        BATCH_SIZE = 100
+        ticker_list = list(tickers)
+        
+        if len(ticker_list) <= BATCH_SIZE:
+            # 小量直接一次下載
+            df = yf.download(ticker_list, start=start_date, end=end_date,
+                             auto_adjust=True, threads=True, progress=False)
+            if df.empty:
+                raise ValueError("Download failed: No data returned from Yahoo Finance.")
+            batches = [df]
         else:
-            # Fallback (極少見)
-            print(f"Available columns: {df.columns}")
-            # 嘗試找 Adj Close 或 Close
-            for col in ['Adj Close', 'Close']:
-                if col in df:
-                    data = df[col]
-                    break
-            else:
-                 raise ValueError(f"Required columns not found. Available: {df.columns}")
+            # 大量分批下載
+            batches = []
+            for i in range(0, len(ticker_list), BATCH_SIZE):
+                batch = ticker_list[i:i + BATCH_SIZE]
+                print(f"Downloading batch {i//BATCH_SIZE + 1}/{(len(ticker_list)-1)//BATCH_SIZE + 1}: {len(batch)} tickers...")
+                try:
+                    b_df = yf.download(batch, start=start_date, end=end_date,
+                                       auto_adjust=True, threads=True, progress=False)
+                    if not b_df.empty:
+                        batches.append(b_df)
+                except Exception as batch_err:
+                    print(f"Batch error: {batch_err}")
+            if not batches:
+                raise ValueError("All batches failed.")
 
-        # 如果只下載了一個代碼，yfinance 可能會返回一個 Series。將其轉換為 DataFrame。
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-            data.columns = tickers
+        # 合併所有批次的 Close 欄位
+        all_data_parts = []
+        for b_df in batches:
+            if 'Close' in b_df:
+                part = b_df['Close']
+            elif isinstance(b_df.columns, pd.MultiIndex):
+                part = b_df.xs('Close', axis=1, level=0) if 'Close' in b_df.columns.get_level_values(0) else b_df.iloc[:, 0:1]
+            else:
+                continue
+            if isinstance(part, pd.Series):
+                part = part.to_frame()
+            all_data_parts.append(part)
         
-        # [修正] 數據清洗標準化：
-        # 1. 刪除全空行 (休市日)
+        if not all_data_parts:
+            raise ValueError("No usable Close data found.")
+        
+        data = pd.concat(all_data_parts, axis=1)
+        # 移除重複欄
+        data = data.loc[:, ~data.columns.duplicated()]
+        
+        # 數據清洗
         data.dropna(how='all', inplace=True)
-        # 2. 前向填充 (Forward Fill)：處理個別股票缺漏數據，假設價格未變
         data.ffill(inplace=True)
-        # 3. 後向填充 (Backward Fill)：處理剛上市前幾天的短暫缺口 (選用)
-        # data.bfill(inplace=True)
         
         if data.empty:
-             raise ValueError("Data is empty after processing.")
-             
+            raise ValueError("Data is empty after processing.")
+        
         return data
 
     def fetch_sp500_tickers(self) -> list:

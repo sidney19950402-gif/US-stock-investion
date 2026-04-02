@@ -113,22 +113,23 @@ benchmark = benchmark_ticker.strip()
 all_tickers = sorted(list(set(risky_assets + safe_assets + [benchmark])))
 
 if st.sidebar.button("開始回測"):
-    with st.spinner("下載數據中..."):
+    n_risky = len(risky_assets)
+    if n_risky > 100:
+        st.warning(f"⚠️ 攻擊型資產共 **{n_risky}** 檔，數據下載將分 **{(n_risky-1)//100 + 1}** 批進行，可能需要數分鐘，請耐心等待。")
+
+    with st.spinner(f"下載 {len(all_tickers)} 檔數據中..."):
         try:
             fetcher = DataFetcher()
             
             # 計算緩衝區間：找出最大回顧期 (月) -> 轉換為天數 -> 加上緩衝
-            # 假設一個月30天，若用週頻率大約是 4.3 週/月。
-            # 為了安全，我們多抓 2 年 (730天) 或 2倍的最大回顧期。
             max_lb = max(lookbacks)
-            # 月頻率乘 30 天，週頻率乘 7 天，這裡簡化直接給充足緩衝
             buffer_days = int(max_lb * 32 * 1.5) + 365 
             
             fetch_start_date = start_date - timedelta(days=buffer_days)
-            # 只顯示日期字串
             st.info(f"系統自動抓取緩衝數據起始日: {fetch_start_date.strftime('%Y-%m-%d')} (為了計算初期指標)")
             
-            prices = fetcher.fetch_data(all_tickers, start_date=fetch_start_date.strftime('%Y-%m-%d'))
+            # 傳入 tuple 確保快取 key 在每次不同清單時能正確識別
+            prices = fetcher.fetch_data(tuple(sorted(all_tickers)), start_date=fetch_start_date.strftime('%Y-%m-%d'))
         except Exception as e:
             st.error(f"數據下載失敗: {e}。請檢查網路連線或代碼是否正確。")
             st.stop()
