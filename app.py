@@ -24,25 +24,30 @@ st.sidebar.header("回測參數設定")
 DEFAULT_TOP_50 = "NVDA, AAPL, MSFT, AMZN, GOOGL, GOOG, META, TSLA, AVGO, BRK-B, JPM, LLY, V, UNH, XOM, MA, COST, HD, PG, WMT, JNJ, ABBV, NFLX, BAC, KO, MRK, CVX, CRM, AMD, PEP, TMO, ORCL, LIN, MCD, ADBE, CSCO, ACN, IBM, GE, QCOM, TXN, VZ, AXP, PM, INTU, AMGN, ISRG, RTX, BKNG, SPGI"
 
 if 'risky_assets' not in st.session_state:
-    # 啟動時直接使用靜態清單，不爬蟲（避免雲端環境封鎖導致啟動失敗）
     st.session_state['risky_assets'] = DEFAULT_TOP_50
+    st.session_state['risky_assets_source'] = "內建清單（2025 Q1 近似市值前 50 大）"
 
 col_params, col_update = st.sidebar.columns([3, 1])
-update_status = st.sidebar.empty()  # 預留一個位置顯示狀態
+update_status = st.sidebar.empty()
 
 if col_update.button("更新", help="從網路獲取最新 S&P 500 成分股清單（Slickcharts → GitHub CSV → Wikipedia，依序嘗試）"):
     with st.spinner("正在獲取最新清單..."):
         try:
             fetcher = DataFetcher()
-            top_50 = fetcher.get_top_n_by_market_cap(50)
+            top_50, source = fetcher.get_top_n_by_market_cap(50)
             if top_50:
                 st.session_state['risky_assets'] = ", ".join(top_50)
-                update_status.success(f"✅ 更新完成！共 {len(top_50)} 檔")
+                st.session_state['risky_assets_source'] = source
+                update_status.success(f"✅ 更新完成！來源：{source}")
                 st.rerun()
             else:
                 update_status.warning("⚠️ 所有來源皆失敗，已保留現有清單。")
         except Exception as e:
             update_status.warning(f"⚠️ 更新失敗（{e}），已保留現有清單。")
+
+# 顯示目前數據來源
+source_label = st.session_state.get('risky_assets_source', '內建清單')
+st.sidebar.caption(f"📌 目前攻擊型資產來源：{source_label}")
 
 risky_assets_input = st.sidebar.text_area("攻擊型資產 (逗號分隔)", value=st.session_state['risky_assets'], key='risky_assets_input', help="請輸入美股代碼。注意：使用當前市值前50大進行歷史回測會存在倖存者偏差。", on_change=lambda: st.session_state.update({'risky_assets': st.session_state.risky_assets_input}))
 safe_assets_input = st.sidebar.text_input("防禦型資產 (逗號分隔)", "TLT, IEF, GLD, UUP", help="當攻擊型資產轉弱時，將從中選擇動能最強的一個持有。")

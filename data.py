@@ -93,14 +93,12 @@ class DataFetcher:
             print(f"Error fetching S&P 500 tickers: {e}")
             return []
 
-    def get_top_n_by_market_cap(self, n: int = 50) -> list:
+    def get_top_n_by_market_cap(self, n: int = 50):
         """
         獲取 S&P 500 中市值最大的前 N 檔股票代碼。
-        主要來源：Slickcharts (已依權重排序)。
-        備援 1：GitHub 公開 CSV。
-        備援 2：Wikipedia。
+        回傳 (tickers: list, source: str) 元組。
         """
-        # --- 主要來源：Slickcharts ---
+        # --- 主要來源：Slickcharts (已依 S&P 500 權重排序) ---
         try:
             url = "https://www.slickcharts.com/sp500"
             headers = {
@@ -118,7 +116,7 @@ class DataFetcher:
             tickers = df['Symbol'].tolist()
             tickers = [t.replace('.', '-') for t in tickers]
             if tickers:
-                return tickers[:n]
+                return tickers[:n], "Slickcharts（依 S&P 500 指數權重排序）"
         except Exception as slick_err:
             print(f"Slickcharts 失敗: {slick_err}")
 
@@ -132,7 +130,7 @@ class DataFetcher:
             tickers = df['Symbol'].tolist()
             tickers = [t.replace('.', '-') for t in tickers]
             if tickers:
-                return tickers[:n]
+                return tickers[:n], "GitHub CSV（字母排序，非市值排序）"
         except Exception as csv_err:
             print(f"GitHub CSV 失敗: {csv_err}")
 
@@ -140,11 +138,11 @@ class DataFetcher:
         try:
             wiki_tickers = self.fetch_sp500_tickers()
             if wiki_tickers:
-                return wiki_tickers[:n]
+                return wiki_tickers[:n], "Wikipedia（字母排序，非市值排序）"
         except Exception:
             pass
 
-        return []
+        return [], "無法獲取"
 
     def _get_top_n_fallback(self, n: int) -> list:
         """
