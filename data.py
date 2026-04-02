@@ -79,8 +79,10 @@ class DataFetcher:
         data = data.loc[:, ~data.columns.duplicated()]
         
         # 數據清洗
+        # 1. 刪除全空行 (休市日)
         data.dropna(how='all', inplace=True)
-        data.ffill(inplace=True)
+        # 2. 不做 ffill — 保留 NaN 讓動能計算自然處理，避免影響歷史結果。
+        # (新上市股票在 IPO 前期為 NaN 是正確行為)
         
         if data.empty:
             raise ValueError("Data is empty after processing.")

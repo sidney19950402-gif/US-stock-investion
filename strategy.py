@@ -59,8 +59,8 @@ class MomentumStrategy:
             safe_assets = [safe_assets]
 
         # 初始化信號 DataFrame，全為零。
-        # 所有的資產欄位都需要包含
-        all_assets = list(set(risky_assets + safe_assets))
+        # 必須使用 sorted 確保欄位順序固定，避免每次執行結果不同。
+        all_assets = sorted(set(risky_assets + safe_assets))
         signals = pd.DataFrame(0.0, index=momentum.index, columns=all_assets)
         
         weight_per_asset = 1.0 / top_n
