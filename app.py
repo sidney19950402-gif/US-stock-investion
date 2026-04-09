@@ -169,9 +169,18 @@ cash_protection = st.sidebar.checkbox(
     value=False,
     help="當最佳防禦資產動能也為負時，持有現金（回報率 0%）。"
 )
-start_date = st.sidebar.date_input("回測開始日期", pd.to_datetime("2010-01-01"))
+
+col_sd, col_ed = st.sidebar.columns(2)
+start_date = col_sd.date_input("開始日期", pd.to_datetime("2010-01-01"))
+end_date = col_ed.date_input("結束日期", pd.to_datetime("today"))
+
+if end_date <= start_date:
+    st.sidebar.error("❌ 結束日期必須大於開始日期。")
+    st.stop()
+
 initial_capital = st.sidebar.number_input("初始資金（USD）", value=10000.0, min_value=100.0)
 benchmark_ticker = st.sidebar.text_input("對照基準", "SPY")
+
 
 # ──────────────────────────────────────────────
 # 組合資產清單（攻擊 + 防禦 + 基準）
@@ -201,10 +210,14 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
     buffer_days = int(max_lb * 35) + 365  # 保守估計多抓一年
     fetch_start = start_date - timedelta(days=buffer_days)
 
-    with st.spinner(f"下載 {len(all_tickers)} 檔數據（{fetch_start.strftime('%Y-%m-%d')} 起）..."):
+    with st.spinner(f"下載 {len(all_tickers)} 檔數據（{fetch_start.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}）..."):
         try:
             fetcher = DataFetcher()
-            prices = fetcher.fetch_data(all_tickers, start_date=fetch_start.strftime('%Y-%m-%d'))
+            prices = fetcher.fetch_data(
+                all_tickers,
+                start_date=fetch_start.strftime('%Y-%m-%d'),
+                end_date=end_date.strftime('%Y-%m-%d')
+            )
         except ValueError as e:
             st.error(f"❌ 數據下載失敗：{e}")
             st.stop()
@@ -238,10 +251,11 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
             cash_protection=cash_protection
         )
 
-        # 切片至使用者指定的起始日期
+        # 切片至使用者指定的起訖日期
         analysis_start = pd.Timestamp(start_date)
+        analysis_end = pd.Timestamp(end_date)
         valid_start = max(analysis_start, signals.index[0]) if not signals.empty else analysis_start
-        signals_sliced = signals.loc[valid_start:]
+        signals_sliced = signals.loc[valid_start:analysis_end]
 
         if signals_sliced.empty:
             st.error("❌ 回測結果為空：有效信號期間不足，請嘗試提前回測開始日期或縮短回顧期。")
@@ -249,7 +263,8 @@ if st.sidebar.button("🚀 開始回測", type="primary"):
 
         backtest = Backtest(prices, signals_sliced, initial_capital)
         results = backtest.run_backtest()
-        results = results.loc[valid_start:]
+        results = results.loc[valid_start:analysis_end]
+
 
         if results.empty:
             st.error("❌ 回測結果為空，請確認日期範圍與數據是否完整。")
